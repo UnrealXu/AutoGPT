@@ -84,19 +84,27 @@ jobs:
             if [ -n "$workflow_files" ]; then
               echo "Upstream touches workflow files; they will be excluded from the merge:"
               echo "$workflow_files"
-              if ! git merge --no-commit "$upstream_sha"; then
+            fi
+            if ! git merge --no-commit "$upstream_sha"; then
+              # Merge hit conflicts. If every conflicted file is under
+              # .github/workflows/, keep our local workflow files (policy:
+              # upstream workflow changes are never taken) and continue.
+              conflicted=$(git diff --name-only --diff-filter=U || true)
+              non_workflow=$(printf '%s\n' "$conflicted" | grep -v '^\.github/workflows/' || true)
+              if [ -n "$conflicted" ] && [ -z "$non_workflow" ]; then
+                echo "All merge conflicts are in .github/workflows/; resolving with local versions."
+                git checkout --ours -- .github/workflows/
+                git add .github/workflows/
+              else
                 git merge --abort || true
                 echo "::error::Merge conflict: upstream $upstream:$source_branch conflicts with local commits on $TARGET/$TARGET_BRANCH. Resolve it manually, then re-run this workflow." >&2
                 exit 1
               fi
-              git checkout HEAD -- .github/workflows/
-              git commit -q --allow-empty -m "Sync upstream ${upstream}:${source_branch}"
-            else
-              if ! git merge -q "$upstream_sha" -m "Sync upstream ${upstream}:${source_branch}"; then
-                echo "::error::Merge conflict: upstream $upstream:$source_branch conflicts with local commits on $TARGET/$TARGET_BRANCH. Resolve it manually, then re-run this workflow." >&2
-                exit 1
-              fi
             fi
+            if [ -n "$workflow_files" ]; then
+              git checkout HEAD -- .github/workflows/
+            fi
+            git commit -q --allow-empty -m "Sync upstream ${upstream}:${source_branch}"
 
             git push -q origin "$TARGET_BRANCH"
             echo "Merge pushed."
