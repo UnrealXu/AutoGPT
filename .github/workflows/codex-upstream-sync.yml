@@ -104,6 +104,20 @@ jobs:
             if [ -n "$workflow_files" ]; then
               git checkout HEAD -- .github/workflows/
             fi
+            # checkout HEAD does not remove files upstream ADDED, so drop any
+            # staged workflow file that HEAD never had: our workflow set stays
+            # exactly ours, upstream additions never leak in.
+            added_workflows=$(git diff --cached --name-only --diff-filter=A -- .github/workflows/ || true)
+            if [ -n "$added_workflows" ]; then
+              echo "Dropping upstream-added workflow files (keeping our workflow set):"
+              echo "$added_workflows"
+              printf '%s\n' "$added_workflows" | while IFS= read -r f; do
+                if [ -n "$f" ]; then
+                  git rm -q --cached -- "$f"
+                  rm -f -- "$f"
+                fi
+              done
+            fi
             git commit -q --allow-empty -m "Sync upstream ${upstream}:${source_branch}"
 
             git push -q origin "$TARGET_BRANCH"
